@@ -1,20 +1,21 @@
 #include "gtest/gtest.h"
 #include "randomdict.h"
+using namespace data_structures;
 
 TEST(rdTest, testSimple) {
     RandomDict<std::string, int> rd(123);
-    EXPECT_ANY_THROW(rd.randomPair());
+    EXPECT_ANY_THROW(rd.random_pair());
     std::vector letters {"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"};
     for (int i = 0; i < letters.size(); ++i) {
         rd[letters[i]] = i;
     }
     EXPECT_EQ(rd.count("c"), 1);
     EXPECT_EQ(rd.size(), letters.size());
-    auto p = rd.randomPair();
+    auto p = rd.random_pair();
     rd[p.first] = 666;
     EXPECT_EQ(rd.at(p.first), 666);
 
-    p = rd.randomPair();
+    p = rd.random_pair();
     EXPECT_EQ(rd.erase(p.first), 1);
     EXPECT_EQ(rd.count(p.first), 0);
     EXPECT_ANY_THROW(rd.at(p.first));
@@ -36,8 +37,8 @@ TEST(rdTest, testSeeding) {
     auto rd2 = make_rd(123, total_size);
 
     for (int i = 0; i < total_size; ++i) {
-        auto p1 = rd1.randomPair();
-        auto p2 = rd2.randomPair();
+        auto p1 = rd1.random_pair();
+        auto p2 = rd2.random_pair();
         EXPECT_EQ(p1, p2);
         EXPECT_EQ(rd1.erase(p1.first), 1);
         EXPECT_EQ(rd1.erase(p1.first), 0);
@@ -47,7 +48,7 @@ TEST(rdTest, testSeeding) {
 
 TEST(rsTest, testSimple) {
     RandomSet<int> rs(123);
-    EXPECT_ANY_THROW(rs.randomElem());
+    EXPECT_ANY_THROW(rs.random_elem());
     EXPECT_EQ(rs.size(), 0);
     rs.insert(1);
     rs.insert(2);
@@ -75,8 +76,8 @@ TEST(rsTest, testSeeding) {
     auto rs1 = make_rs(123, total_size);
     auto rs2 = make_rs(123, total_size);
     for (int i = 0; i < total_size; ++i) {
-        EXPECT_EQ(rs1.randomElem(), rs2.randomElem());
-        rs1.erase(rs1.randomElem());
-        rs2.erase(rs2.randomElem());
+        EXPECT_EQ(rs1.random_elem(), rs2.random_elem());
+        rs1.erase(rs1.random_elem());
+        rs2.erase(rs2.random_elem());
     }
 }

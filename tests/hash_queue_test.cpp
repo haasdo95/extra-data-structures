@@ -1,9 +1,11 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 #include "hashqueue.h"
 
 #include <vector>
 #include <random>
 #include <unordered_set>
+
+using namespace data_structures;
 
 TEST(hqTest, testCons) {
     HashQueue<std::string> hEmpty;
@@ -12,15 +14,15 @@ TEST(hqTest, testCons) {
 
     hEmpty.push(6, "hello");
     EXPECT_EQ(1, hEmpty.size());
-    EXPECT_ANY_THROW(hEmpty.push(12, "hello"));
-    EXPECT_ANY_THROW(hEmpty.remove("welcome"));
+    ASSERT_DEATH(hEmpty.push(12, "hello"), ".*Assertion `false' failed");
+    ASSERT_DEATH(hEmpty.remove("welcome"), ".*Assertion `false' failed");
 
     hEmpty.remove("hello");
     EXPECT_EQ(0, hEmpty.size());
     EXPECT_ANY_THROW(hEmpty.pop());
 
     std::vector wrong {std::make_pair(3.5, "id"), std::make_pair(6.9, "id")};
-    EXPECT_ANY_THROW(HashQueue hWrong{wrong});
+    ASSERT_DEATH(HashQueue hWrong{wrong}, ".*Assertion `false' failed");
 
     std::vector<std::pair<double, std::string>> v;
     std::vector<double> v1 {3, 1, 2, 5, 4};
