@@ -12,6 +12,8 @@
 namespace data_structures::details {
     template<typename T>
     struct Entry {
+        template<typename ...Arg>
+        Entry(double time, bool exist, Arg&&... args): time{time}, exist{exist}, payload{std::forward<Arg>(args)...} {}
         double time;
         T payload;
         bool exist;
@@ -36,16 +38,17 @@ namespace data_structures {
 
         explicit HashQueue(const std::vector<std::pair<double, T>> & data);
         ~HashQueue();
-        HashQueue(const HashQueue<T> & other) = delete;
-        HashQueue(HashQueue<T> && other) = delete;
+        HashQueue(const HashQueue<T>& other) = delete;
+        HashQueue(HashQueue<T>&& other) = delete;
         HashQueue& operator=(const HashQueue<T> & other) = delete;
         HashQueue& operator=(HashQueue<T> && other) = delete;
 
-        void push(double time, const T& payload);
+        template<typename ...Arg>
+        void push(double time, Arg&&... args);
         std::pair<double, T> pop();
-        std::pair<double, T> peek();
+        std::pair<double, const T&> peek();
         void remove(const T& payload);
-        size_t size() { return _size; }
+        [[nodiscard]] size_t size() const { return _size; }
 
     };
 
@@ -53,11 +56,9 @@ namespace data_structures {
     HashQueue<T>::HashQueue(const std::vector<std::pair<double, T>> & data) {
         _size = data.size();
         for (const auto& [time, payload]: data) {
-            auto * entry = new details::Entry<T> {
-                .time=time, .payload=payload, .exist=true
-            };
-            _data.push_back(entry);
             ASSERT(!_m.count(payload), "duplicate entries during initialization");
+            auto * entry = new details::Entry<T>(time, true, payload);
+            _data.push_back(entry);
             _m[payload] = entry;
         }
         std::make_heap(_data.begin(), _data.end(), details::compare<T>);
@@ -71,13 +72,12 @@ namespace data_structures {
     }
 
     template<typename T>
-    void HashQueue<T>::push(double time, const T& payload) {
-        ASSERT(!_m.count(payload), "re-adding the existing");
-        _size++;
-        auto* entry = new details::Entry<T> {
-            time, payload, true
-        };
-        _m[payload] = entry;
+    template<typename... Arg>
+    void HashQueue<T>::push(double time, Arg&&... args) {
+        auto* entry = new details::Entry<T>(time, true, std::forward<Arg>(args)...);
+        ASSERT(!_m.count(entry->payload), "re-adding the existing");
+        ++_size;
+        _m[entry->payload] = entry;
         _data.push_back(entry);
         std::push_heap(_data.begin(), _data.end(), details::compare<T>);
     }
@@ -89,18 +89,18 @@ namespace data_structures {
             details::Entry<T>* entry = _data.back();
             _data.pop_back();
             details::Entry<T> entry_copy = std::move(*entry); // move the content of entry out
-            delete entry; // and then delete
+            delete entry;  // and then delete
             if (entry_copy.exist) {
                 _size--;
                 _m.erase(entry_copy.payload);
-                return std::make_pair(entry_copy.time, entry_copy.payload);
+                return { entry_copy.time, std::move(entry_copy.payload) };
             }
         }
         throw std::runtime_error("Empty Queue");
     }
 
     template<typename T>
-    std::pair<double, T> HashQueue<T>::peek() {
+    std::pair<double, const T&> HashQueue<T>::peek() {
         while (_size > 0) {
             details::Entry<T>* entry = _data[0];
             if (entry->exist) {

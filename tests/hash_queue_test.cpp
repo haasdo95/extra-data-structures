@@ -37,7 +37,8 @@ TEST(hqTest, testCons) {
     EXPECT_EQ(v.size()-2, h.size());
     // check min-heap
     h.remove("c");
-    EXPECT_EQ(v[0], h.peek());
+    EXPECT_EQ(h.peek().first, v[0].first);
+    EXPECT_EQ(h.peek().second, v[0].second);
     EXPECT_EQ(v[0], h.pop());
     EXPECT_EQ(v[3], h.pop());
 }
