@@ -4,6 +4,7 @@
 #include <vector>
 #include <random>
 #include <unordered_set>
+#include <memory>
 
 using namespace data_structures;
 
@@ -80,4 +81,44 @@ TEST(hqTest, testSort) {
         EXPECT_EQ(after_remove[i], hq.pop());
         i++;
     }
+}
+
+struct Base {
+public:
+    [[nodiscard]] virtual std::string id() const = 0;
+};
+struct A final: public Base {
+    int x, y;
+    A(int x, int y): x{x}, y{y} {}
+    [[nodiscard]] std::string id() const override {
+        std::stringstream ss;
+        ss << "A(" << x << ", " << y << ")";
+        return ss.str();
+    }
+};
+struct B final: public Base {
+    double x, y, z;
+    B(double x, double y, double z): x{x}, y{y}, z{z} {}
+    [[nodiscard]] std::string id() const override {
+        std::stringstream ss;
+        ss << "B(" << x << ", " << y << ", " << z << ")";
+        return ss.str();
+    }
+};
+
+TEST(hqTest, testObj) {
+    HashQueue<std::unique_ptr<Base>, std::string> q{[](const std::unique_ptr<Base>& p) { return p->id(); }};
+    q.push(0.0, std::make_unique<A>(0, 1));
+    q.push(1.0, std::make_unique<B>(0, 1, 2));
+    q.push(2.0, std::make_unique<A>(1, 0));
+    q.push(3.0, std::make_unique<B>(2, 1, 0));
+    q.remove("A(1, 0)");
+    std::stringstream ss;
+    while (q.size()) {
+        auto [time, p] = q.pop();
+        ss << p->id()  << " @ " << time << '\n';
+    }
+    ASSERT_EQ(ss.str(), "A(0, 1) @ 0\n"
+                        "B(0, 1, 2) @ 1\n"
+                        "B(2, 1, 0) @ 3\n");
 }

@@ -27,103 +27,109 @@ namespace data_structures::details {
 }
 
 namespace data_structures {
-    template<typename T>
+    template<typename T, typename ID=T>
     class HashQueue {
     private:
-        size_t _size;
+        std::optional<std::function<ID(const T& payload)>> id_func;
+        size_t _size{};
         std::vector<details::Entry<T>*> _data;
-        std::unordered_map<T, details::Entry<T>*> _m;
+        std::unordered_map<ID, details::Entry<T>*> _m;
+    private:
+        ID convert(const T& payload) const {  // resolve ID converter
+            if (id_func) {
+                return id_func.value()(payload);
+            } else {
+                if constexpr(std::is_convertible_v<T, ID>) {
+                    return payload;
+                } else if constexpr(std::is_constructible_v<ID, T>) {
+                    return static_cast<ID>(payload);
+                } else {
+                    throw std::runtime_error("unable to convert payload to ID");
+                }
+            }
+        }
     public:
-        HashQueue(): _size{0}, _data{}, _m{} {};
+        HashQueue() = default;
 
-        explicit HashQueue(const std::vector<std::pair<double, T>> & data);
-        ~HashQueue();
+        template<typename F, std::enable_if_t<std::is_constructible_v<decltype(id_func), F>, bool> = true>
+        explicit HashQueue(F f): id_func{f} {}
+
+        template<typename F>
+        HashQueue(F f, const std::vector<std::pair<double, T>>& data): id_func{f} {
+            _size = data.size();
+            for (const auto& [time, payload]: data) {
+                ID id = convert(payload);
+                ASSERT(!_m.count(id), "duplicate entries during initialization");
+                auto * entry = new details::Entry<T>(time, true, payload);
+                _data.push_back(entry);
+                _m[std::move(id)] = entry;
+            }
+            std::make_heap(_data.begin(), _data.end(), details::compare<T>);
+        }
+
+        explicit HashQueue(const std::vector<std::pair<double, T>>& data): HashQueue(std::nullopt, data) {}
+
+        ~HashQueue() {
+            for (details::Entry<T>* e : _data) {
+                delete e;
+            }  // don't need to delete for map
+        }
+
         HashQueue(const HashQueue<T>& other) = delete;
         HashQueue(HashQueue<T>&& other) = delete;
         HashQueue& operator=(const HashQueue<T> & other) = delete;
         HashQueue& operator=(HashQueue<T> && other) = delete;
 
         template<typename ...Arg>
-        void push(double time, Arg&&... args);
-        std::pair<double, T> pop();
-        std::pair<double, const T&> peek();
-        void remove(const T& payload);
-        [[nodiscard]] size_t size() const { return _size; }
-
-    };
-
-    template<typename T>
-    HashQueue<T>::HashQueue(const std::vector<std::pair<double, T>> & data) {
-        _size = data.size();
-        for (const auto& [time, payload]: data) {
-            ASSERT(!_m.count(payload), "duplicate entries during initialization");
-            auto * entry = new details::Entry<T>(time, true, payload);
+        void push(double time, Arg&&... args) {
+            auto* entry = new details::Entry<T>(time, true, std::forward<Arg>(args)...);
+            ID id = convert(entry->payload);
+            ASSERT(!_m.count(id), "re-adding the existing");
+            ++_size;
+            _m[std::move(id)] = entry;
             _data.push_back(entry);
-            _m[payload] = entry;
+            std::push_heap(_data.begin(), _data.end(), details::compare<T>);
         }
-        std::make_heap(_data.begin(), _data.end(), details::compare<T>);
-    }
 
-    template<typename T>
-    HashQueue<T>::~HashQueue() {
-        for (details::Entry<T>* e : _data) {
-            delete e;
-        }  // don't need to delete for map
-    }
-
-    template<typename T>
-    template<typename... Arg>
-    void HashQueue<T>::push(double time, Arg&&... args) {
-        auto* entry = new details::Entry<T>(time, true, std::forward<Arg>(args)...);
-        ASSERT(!_m.count(entry->payload), "re-adding the existing");
-        ++_size;
-        _m[entry->payload] = entry;
-        _data.push_back(entry);
-        std::push_heap(_data.begin(), _data.end(), details::compare<T>);
-    }
-
-    template<typename T>
-    std::pair<double, T> HashQueue<T>::pop() {
-        while (_size > 0) {
-            std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
-            details::Entry<T>* entry = _data.back();
-            _data.pop_back();
-            details::Entry<T> entry_copy = std::move(*entry); // move the content of entry out
-            delete entry;  // and then delete
-            if (entry_copy.exist) {
-                _size--;
-                _m.erase(entry_copy.payload);
-                return { entry_copy.time, std::move(entry_copy.payload) };
+        std::pair<double, T> pop() {
+            while (_size > 0) {
+                std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
+                details::Entry<T>* entry = _data.back();
+                _data.pop_back();
+                details::Entry<T> entry_copy = std::move(*entry); // move the content of entry out
+                delete entry;  // and then delete
+                if (entry_copy.exist) {
+                    _size--;
+                    _m.erase(convert(entry_copy.payload));
+                    return { entry_copy.time, std::move(entry_copy.payload) };
+                }
             }
+            throw std::runtime_error("Empty Queue");
         }
-        throw std::runtime_error("Empty Queue");
-    }
 
-    template<typename T>
-    std::pair<double, const T&> HashQueue<T>::peek() {
-        while (_size > 0) {
-            details::Entry<T>* entry = _data[0];
-            if (entry->exist) {
-                return { entry->time, entry->payload };
+        std::pair<double, const T&> peek() {
+            while (_size > 0) {
+                details::Entry<T>* entry = _data[0];
+                if (entry->exist) {
+                    return { entry->time, entry->payload };
+                }
+                // filter out non-existing entries
+                std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
+                _data.pop_back();
+                delete entry; // and then delete
             }
-            // filter out non-existing entries
-            std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
-            _data.pop_back();
-            delete entry; // and then delete
+            throw std::runtime_error("Empty Queue");
         }
-        throw std::runtime_error("Empty Queue");
-    }
 
-
-    template<typename T>
-    void HashQueue<T>::remove(const T& payload) {
-        ASSERT(_m.count(payload) && _m.at(payload)->exist, "removing the non-existent");
-        details::Entry<T>* entry = _m.at(payload);
-        _m.erase(payload);
-        entry->exist = false; // mark as deleted
-        _size--;
-    }
-
+        void remove(const ID& id) {
+            ASSERT(_m.count(id) && _m.at(id)->exist, "removing the non-existent");
+            details::Entry<T>* entry = _m.at(id);
+            _m.erase(id);
+            entry->exist = false; // mark as deleted
+            _size--;
+        }
+        [[nodiscard]] size_t size() const { return _size; }
+    };
 }
 
 #endif //GSK_HASHQUEUE_H
