@@ -3,14 +3,14 @@ project(extra_data_structure)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_library(${CMAKE_PROJECT_NAME} INTERFACE)
-set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
+add_library(${PROJECT_NAME} INTERFACE)
+set_target_properties(${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 add_subdirectory(src)
 
 option(EXTRA_DATA_STRUCTURE_ASSERT "enable assertions and error messages" ON)
 if (EXTRA_DATA_STRUCTURE_ASSERT)
     message("enabled assertions and error messages")
-    target_compile_definitions(${CMAKE_PROJECT_NAME} INTERFACE ASSERT_ENABLED=1)
+    target_compile_definitions(${PROJECT_NAME} INTERFACE ASSERT_ENABLED=1)
 endif ()
 
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
