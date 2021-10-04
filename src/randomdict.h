@@ -10,8 +10,6 @@
 #include "assertions.h"
 
 namespace data_structures {
-
-
     template<typename K>
     class RandomSet {
         std::vector<K> _data;
@@ -22,6 +20,8 @@ namespace data_structures {
         RandomSet() = delete;
         size_t count(const K & key) const;
         [[nodiscard]] size_t size() const;
+        void clear() noexcept;
+
         size_t insert(const K& key);
         size_t erase(const K & key);
         const K & random_elem() const;
@@ -39,6 +39,12 @@ namespace data_structures {
     template<typename K>
     size_t RandomSet<K>::size() const {
         return _data.size();
+    }
+
+    template<typename K>
+    void RandomSet<K>::clear() noexcept {
+        _data.clear();
+        _m.clear();
     }
 
     template<typename K>
@@ -98,6 +104,8 @@ namespace data_structures {
 
         size_t count(const K & key) const;
         [[nodiscard]] size_t size() const;
+        void clear() noexcept;
+
         V& at(const K& key);
         const V& at(const K& key) const; // get
         V& operator[](const K& key); // set
@@ -118,6 +126,12 @@ namespace data_structures {
     template<typename K, typename V>
     size_t RandomDict<K, V>::size() const {
         return _data.size();
+    }
+
+    template<typename K, typename V>
+    void RandomDict<K, V>::clear() noexcept {
+        _data.clear();
+        _m.clear();
     }
 
     template<typename K, typename V>
