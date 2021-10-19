@@ -7,7 +7,6 @@
 #include <random>
 #include <unordered_set>
 
-#include "assertions.h"
 
 namespace data_structures {
     template<typename K,
@@ -39,22 +38,28 @@ namespace data_structures {
         }
 
         RandomSet& operator=(const RandomSet& other) {
-            m = other.m;
-            rng = other.rng;
-            align_v();
+            if (this!=&other) {
+                m = other.m;
+                rng = other.rng;
+                align_v();
+            }
+            return *this;
         }
 
         RandomSet& operator=(RandomSet&& other) noexcept {
-            v = std::move(other.v);
-            rng = std::move(other.rng);
-            m.merge(std::move(other.m));
+            if (this!=&other) {
+                v = std::move(other.v);
+                rng = std::move(other.rng);
+                m.clear();
+                m.merge(std::move(other.m));
+            }
+            return *this;
         }
 
         ~RandomSet() = default;
 
-        auto count(const K & key) const { return m.count(key); }
+        auto count(const K& key) const { return m.count(key); }
         [[nodiscard]] auto size() const noexcept { return v.size(); }
-
         void clear() noexcept {
             v.clear();
             m.clear();
@@ -112,7 +117,7 @@ namespace data_structures {
             v.clear();
             v.resize(m.size());
             for (const auto& [key, idx]: m) {
-                v.emplace(std::next(v.begin(), idx), &key, other.v.at(idx).second);
+                v.at(idx) = std::make_pair(&key, other.v.at(idx).second);
             }
         }
     public:
@@ -120,24 +125,30 @@ namespace data_structures {
         RandomDict() = delete;
 
         RandomDict(const RandomDict& other): v{}, m{other.m}, rng{other.rng} { align_v(other); }
-        RandomDict(RandomDict&& other) noexcept: v{std::move(other.v)}, rng(std::move(other.rng)) {
+        RandomDict(RandomDict&& other) noexcept: v{std::move(other.v)}, m{}, rng(std::move(other.rng)) {
             m.merge(std::move(other.m));
         }
 
         RandomDict& operator=(const RandomDict& other) {
-            m = other.m;
-            rng = other.rng;
-            align_v(other);
+            if (this!=&other) {
+                m = other.m;
+                rng = other.rng;
+                align_v(other);
+            }
+            return *this;
         }
         RandomDict& operator=(RandomDict&& other) noexcept {
-            v = std::move(other.v);
-            rng = std::move(other.rng);
-            m.merge(std::move(other.m));
+            if (this!=&other) {
+                v = std::move(other.v);
+                rng = std::move(other.rng);
+                m.clear();
+                m.merge(std::move(other.m));
+            }
+            return *this;
         }
 
         auto count(const K& key) const { return m.count(key); }
         [[nodiscard]] auto size() const noexcept { return v.size(); };
-
         void clear() noexcept {
             v.clear();
             m.clear();
@@ -146,17 +157,13 @@ namespace data_structures {
         V& at(const K& key) { return v.at(m.at(key)).second; }
         const V& at(const K& key) const { return v.at(m.at(key)).second; }
 
-        template<typename ...KT>
-        V& operator[](KT&&... key_args) {
-            static_assert(std::is_constructible_v<K, KT...>);
-            auto [iter, insertion_happens] = m.emplace(std::piecewise_construct,
-                                                       std::forward_as_tuple(key_args...),
-                                                       std::forward_as_tuple(v.size()));
-            if (insertion_happens) {
+        template<typename KT>
+        V& operator[](KT&& key) {
+            static_assert(std::is_constructible_v<K, decltype(key)>);
+            auto [iter, insertion_happens] = m.emplace(std::forward<KT>(key), v.size());
+            if (insertion_happens) {  // V is default-constructed here
                 return v.emplace_back(std::piecewise_construct,
-                                      std::forward_as_tuple(&(iter->first)),
-                                      std::forward_as_tuple())  // V is default-constructed here
-                                      .second;
+                                      std::forward_as_tuple(&(iter->first)), std::forward_as_tuple()).second;
             } else {
                 return v.at(iter->second).second;  // ref to existing elem
             }
@@ -178,7 +185,7 @@ namespace data_structures {
 
         template<typename KT, typename VT>
         int insert(KT&& key, VT&& val) noexcept {
-            static_assert(std::is_constructible_v<K, KT> and std::is_constructible_v<V, VT>);
+            static_assert(std::is_constructible_v<K, decltype(key)> and std::is_constructible_v<V, decltype(val)>);
             auto [iter, insertion_happens] = m.emplace(std::forward<KT>(key), v.size());
             if (insertion_happens) {
                 v.emplace_back(&(iter->first), std::forward<VT>(val));
@@ -190,9 +197,7 @@ namespace data_structures {
 
         int erase(const K& key) {
             auto iter = m.find(key);
-            if (iter == m.end()) { // no-op_ if not found
-                return 0;
-            }
+            if (iter == m.end()) { return 0; }  // no-op if not found
             size_type index_removed = iter->second;
             m.erase(iter);
             if (index_removed != v.size() - 1) { // not the last entry

@@ -5,45 +5,44 @@
 #include <unordered_map>
 #include <algorithm>
 #include <stdexcept>
-#include <iostream>
 
-#include "assertions.h"
-
-namespace data_structures::details {
+namespace data_structures::detail {
     template<typename T>
     struct Entry {
         template<typename ...Arg>
-        Entry(double time, bool exist, Arg&&... args): time{time}, exist{exist}, payload{std::forward<Arg>(args)...} {}
+        explicit Entry(double time, Arg&&... args): time{time}, exist{true}, payload{std::forward<Arg>(args)...} {}
         double time;
         T payload;
         bool exist;
     };
 
     template<typename T>
-    inline bool compare(Entry<T>* e1, Entry<T>* e2) {
+    inline bool compare(const Entry<T>* e1, const Entry<T>* e2) {
         // true if e1 less than e2 => turn into a min-heap
         return e1->time > e2->time;
     }
 }
 
 namespace data_structures {
-    template<typename T, typename ID=T>
+    template<typename T, typename ID=T, typename Hash=std::hash<ID>, typename KeyEqual=std::equal_to<ID>>
     class HashQueue {
     private:
         std::optional<std::function<ID(const T& payload)>> id_func;
-        size_t _size{};
-        std::vector<details::Entry<T>*> _data;
-        std::unordered_map<ID, details::Entry<T>*> _m;
+        std::vector<detail::Entry<T>*> _data;
+        using size_type = typename decltype(_data)::size_type;
+        size_type _size{};
+        std::unordered_map<ID, detail::Entry<T>*, Hash, KeyEqual> _m;
     private:
         ID convert(const T& payload) const {  // resolve ID converter
             if (id_func) {
                 return id_func.value()(payload);
             } else {
-                if constexpr(std::is_convertible_v<T, ID>) {
+                if constexpr(std::is_convertible_v<T, ID>) {  // merely a copy if T=ID
                     return payload;
                 } else if constexpr(std::is_constructible_v<ID, T>) {
                     return static_cast<ID>(payload);
                 } else {
+                    assert(false);
                     throw std::runtime_error("unable to convert payload to ID");
                 }
             }
@@ -59,18 +58,18 @@ namespace data_structures {
             _size = data.size();
             for (const auto& [time, payload]: data) {
                 ID id = convert(payload);
-                ASSERT(!_m.count(id), "duplicate entries during initialization");
-                auto * entry = new details::Entry<T>(time, true, payload);
+                assert(!_m.count(id));
+                auto * entry = new detail::Entry<T>(time, payload);
                 _data.push_back(entry);
-                _m[std::move(id)] = entry;
+                _m.emplace(std::move(id), entry);
             }
-            std::make_heap(_data.begin(), _data.end(), details::compare<T>);
+            std::make_heap(_data.begin(), _data.end(), detail::compare<T>);
         }
 
         explicit HashQueue(const std::vector<std::pair<double, T>>& data): HashQueue(std::nullopt, data) {}
 
         ~HashQueue() {
-            for (details::Entry<T>* e : _data) {
+            for (detail::Entry<T>* e : _data) {
                 delete e;
             }  // don't need to delete for map
         }
@@ -80,26 +79,28 @@ namespace data_structures {
         HashQueue& operator=(const HashQueue<T> & other) = delete;
         HashQueue& operator=(HashQueue<T> && other) = delete;
 
+
         template<typename ...Arg>
         void push(double time, Arg&&... args) {
-            auto* entry = new details::Entry<T>(time, true, std::forward<Arg>(args)...);
+            auto* entry = new detail::Entry<T>(time, std::forward<Arg>(args)...);
             ID id = convert(entry->payload);
-            ASSERT(!_m.count(id), "re-adding the existing");
+            assert(!_m.count(id));
             ++_size;
-            _m[std::move(id)] = entry;
             _data.push_back(entry);
-            std::push_heap(_data.begin(), _data.end(), details::compare<T>);
+            _m.emplace(std::move(id), entry);
+            std::push_heap(_data.begin(), _data.end(), detail::compare<T>);
         }
 
         std::pair<double, T> pop() {
             while (_size > 0) {
-                std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
-                details::Entry<T>* entry = _data.back();
+                std::pop_heap(_data.begin(), _data.end(), detail::compare<T>);
+                detail::Entry<T>* entry = _data.back();
                 _data.pop_back();
-                details::Entry<T> entry_copy = std::move(*entry); // move the content of entry out
+                detail::Entry<T> entry_copy = std::move(*entry); // move the content of entry out
                 delete entry;  // and then delete
                 if (entry_copy.exist) {
                     _size--;
+                    assert(_m.count(convert(entry_copy.payload)));
                     _m.erase(convert(entry_copy.payload));
                     return { entry_copy.time, std::move(entry_copy.payload) };
                 }
@@ -109,12 +110,12 @@ namespace data_structures {
 
         std::pair<double, const T&> peek() {
             while (_size > 0) {
-                details::Entry<T>* entry = _data[0];
+                detail::Entry<T>* entry = _data[0];  // where the min time is
                 if (entry->exist) {
                     return { entry->time, entry->payload };
                 }
                 // filter out non-existing entries
-                std::pop_heap(_data.begin(), _data.end(), details::compare<T>);
+                std::pop_heap(_data.begin(), _data.end(), detail::compare<T>);
                 _data.pop_back();
                 delete entry; // and then delete
             }
@@ -122,13 +123,15 @@ namespace data_structures {
         }
 
         void remove(const ID& id) {
-            ASSERT(_m.count(id) && _m.at(id)->exist, "removing the non-existent");
-            details::Entry<T>* entry = _m.at(id);
-            _m.erase(id);
+            auto it = _m.find(id);
+            assert(it!=_m.end() && it->second->exist);
+            detail::Entry<T>* entry = it->second;
+            _m.erase(it);
             entry->exist = false; // mark as deleted
             _size--;
         }
-        [[nodiscard]] size_t size() const { return _size; }
+
+        [[nodiscard]] auto size() const noexcept { return _size; }
     };
 }
 
