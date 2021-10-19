@@ -11,7 +11,7 @@ TEST(rdTest, testSimple) {
     }
     EXPECT_EQ(rd.count("c"), 1);
     EXPECT_EQ(rd.size(), letters.size());
-    auto p = rd.random_pair();
+    std::pair<std::string, int> p = rd.random_pair();
     rd[p.first] = 666;
     EXPECT_EQ(rd.at(p.first), 666);
 
@@ -77,7 +77,7 @@ TEST(rsTest, testSeeding) {
     auto rs2 = make_rs(123, total_size);
     for (int i = 0; i < total_size; ++i) {
         EXPECT_EQ(rs1.random_elem(), rs2.random_elem());
-        rs1.erase(rs1.random_elem());
-        rs2.erase(rs2.random_elem());
+        EXPECT_EQ(rs1.erase(rs1.random_elem()), 1);
+        EXPECT_EQ(rs2.erase(rs2.random_elem()), 1);
     }
 }

@@ -10,193 +10,213 @@
 #include "assertions.h"
 
 namespace data_structures {
-    template<typename K>
+    template<typename K,
+            typename Hash=std::hash<K>,
+            typename KeyEqual=std::equal_to<K>>
     class RandomSet {
-        std::vector<K> _data;
-        std::unordered_map<K, size_t> _m;
+    private:
+        // this design is possible because unordered_map never invalidates references/pointers
+        std::vector<const K*> v;
+        using size_type = typename decltype(v)::size_type;
+        std::unordered_map<K, size_type, Hash, KeyEqual> m;
         mutable std::mt19937 rng;
+    private:
+        void align_v() {  // direct entries in v to keys in m
+            v.clear();  // defensive coding...
+            v.resize(m.size());
+            for (const auto& [key, idx]: m) {
+                v.at(idx) = &key;  // pointing to the entry in m
+            }
+        }
     public:
-        explicit RandomSet(uint32_t seed);
+        explicit RandomSet(uint32_t seed): v{}, m{}, rng{seed} {}
         RandomSet() = delete;
-        size_t count(const K & key) const;
-        [[nodiscard]] size_t size() const;
-        void clear() noexcept;
 
-        size_t insert(const K& key);
-        size_t erase(const K & key);
-        const K & random_elem() const;
-        K & random_elem();
-    };
-
-    template<typename K>
-    RandomSet<K>::RandomSet(uint32_t seed): _data{}, _m{}, rng{seed} {}
-
-    template<typename K>
-    size_t RandomSet<K>::count(const K &key) const {
-        return _m.count(key);
-    }
-
-    template<typename K>
-    size_t RandomSet<K>::size() const {
-        return _data.size();
-    }
-
-    template<typename K>
-    void RandomSet<K>::clear() noexcept {
-        _data.clear();
-        _m.clear();
-    }
-
-    template<typename K>
-    size_t RandomSet<K>::erase(const K & key) {
-        auto const & iter = _m.find(key);
-        if (iter == _m.end()) { // no-op_ if not found
-            return 0;
+        RandomSet(const RandomSet& other): v{}, m{other.m}, rng(other.rng) { align_v(); }
+        // nothing is copied or moved by calling merge; meaning that references in v are still valid
+        RandomSet(RandomSet&& other) noexcept: v{std::move(other.v)}, m{}, rng{std::move(other.rng)} {
+            m.merge(std::move(other.m));
         }
-        size_t index_removed = iter->second;
-        _m.erase(key);
-        if (index_removed != _data.size()-1) { // not the last entry
-            _data[index_removed] = std::move(_data.back());
-            _m[_data[index_removed]] = index_removed;  // redirect to index_removed
-        }
-        _data.pop_back();  // shrink the last entry out
-        return 1;
-    }
 
-    template<typename K>
-    size_t RandomSet<K>::insert(const K & key) {
-        if (!_m.count(key)) {  // no-op_ if already existing
-            _data.emplace_back(key);
-            _m[key] = _data.size()-1;
+        RandomSet& operator=(const RandomSet& other) {
+            m = other.m;
+            rng = other.rng;
+            align_v();
+        }
+
+        RandomSet& operator=(RandomSet&& other) noexcept {
+            v = std::move(other.v);
+            rng = std::move(other.rng);
+            m.merge(std::move(other.m));
+        }
+
+        ~RandomSet() = default;
+
+        auto count(const K & key) const { return m.count(key); }
+        [[nodiscard]] auto size() const noexcept { return v.size(); }
+
+        void clear() noexcept {
+            v.clear();
+            m.clear();
+        }
+
+        template<typename ...KT>
+        int insert(KT&&... key) noexcept {
+            static_assert(std::is_constructible_v<K, KT...>);
+            auto [it, insertion_happens] = m.emplace(std::piecewise_construct,
+                                                     std::forward_as_tuple(key...),
+                                                     std::forward_as_tuple(v.size()));  // construct key in-place
+            if (insertion_happens) {
+                v.emplace_back(&(it->first));
+                return 1;
+            } else {  // value already exists -> no-op
+                return 0;
+            }
+        }
+
+        int erase(const K& key) noexcept {
+            auto iter = m.find(key);
+            if (iter == m.end()) { return 0; }  // no-op if not found
+            size_type index_removed = iter->second;
+            m.erase(iter);  // the corresponding ptr in v becomes dangling now
+            if (index_removed != v.size() - 1) {  // not the last entry
+                v[index_removed] = v.back();  // v entry redirected; not dangling anymore
+                m.at(*(v.back())) = index_removed;  // m entry redirected
+            }
+            v.pop_back();  // shrink the last entry out
             return 1;
         }
-        return 0;
-    }
 
-    template<typename K>
-    const K & RandomSet<K>::random_elem() const {
-        if (_data.empty()) {
-            throw std::runtime_error("empty dictionary");
+        const K& random_elem() const {
+            if (v.empty()) { throw std::runtime_error("empty set"); }
+            std::uniform_int_distribution<size_type> uniform_distrib(0, v.size() - 1);
+            return *(v.at(uniform_distrib(rng)));
         }
-        std::uniform_int_distribution<size_t> uniform_distrib(0, _data.size()-1);
-        return _data[uniform_distrib(rng)];
-    }
-
-    template<typename K>
-    K & RandomSet<K>::random_elem() {
-        return const_cast<K&>(const_cast<const RandomSet<K> *>(this)->random_elem());
-    }
-
-
+    };
 }
 
 
 namespace data_structures {
-    template<typename K, typename V>
+    template<typename K, typename V,
+            typename Hash=std::hash<K>,
+            typename KeyEqual=std::equal_to<K>>
     class RandomDict {
+    static_assert(std::is_default_constructible_v<V>, "the mapped type, V, should be default constructible");
     private:
-        std::vector<std::pair<K, V>> _data;
-        std::unordered_map<K, size_t> _m;
+        std::vector<std::pair<const K*, V>> v;
+        using size_type = typename decltype(v)::size_type;
+        std::unordered_map<K, size_type, Hash, KeyEqual> m;
         mutable std::mt19937 rng;
+    private:
+        void align_v(const RandomDict& other) {
+            v.clear();
+            v.resize(m.size());
+            for (const auto& [key, idx]: m) {
+                v.emplace(std::next(v.begin(), idx), &key, other.v.at(idx).second);
+            }
+        }
     public:
-        explicit RandomDict(uint32_t seed);
+        explicit RandomDict(uint32_t seed): v{}, m{}, rng{seed} {}
         RandomDict() = delete;
 
-        size_t count(const K & key) const;
-        [[nodiscard]] size_t size() const;
-        void clear() noexcept;
+        RandomDict(const RandomDict& other): v{}, m{other.m}, rng{other.rng} { align_v(other); }
+        RandomDict(RandomDict&& other) noexcept: v{std::move(other.v)}, rng(std::move(other.rng)) {
+            m.merge(std::move(other.m));
+        }
 
-        V& at(const K& key);
-        const V& at(const K& key) const; // get
-        V& operator[](const K& key); // set
-        size_t insert(const K& key, const V& val);
-        size_t erase(const K& key);
-        const std::pair<K,V>& random_pair() const;
-        std::pair<K,V> & random_pair();
+        RandomDict& operator=(const RandomDict& other) {
+            m = other.m;
+            rng = other.rng;
+            align_v(other);
+        }
+        RandomDict& operator=(RandomDict&& other) noexcept {
+            v = std::move(other.v);
+            rng = std::move(other.rng);
+            m.merge(std::move(other.m));
+        }
+
+        auto count(const K& key) const { return m.count(key); }
+        [[nodiscard]] auto size() const noexcept { return v.size(); };
+
+        void clear() noexcept {
+            v.clear();
+            m.clear();
+        }
+
+        V& at(const K& key) { return v.at(m.at(key)).second; }
+        const V& at(const K& key) const { return v.at(m.at(key)).second; }
+
+        template<typename ...KT>
+        V& operator[](KT&&... key_args) {
+            static_assert(std::is_constructible_v<K, KT...>);
+            auto [iter, insertion_happens] = m.emplace(std::piecewise_construct,
+                                                       std::forward_as_tuple(key_args...),
+                                                       std::forward_as_tuple(v.size()));
+            if (insertion_happens) {
+                return v.emplace_back(std::piecewise_construct,
+                                      std::forward_as_tuple(&(iter->first)),
+                                      std::forward_as_tuple())  // V is default-constructed here
+                                      .second;
+            } else {
+                return v.at(iter->second).second;  // ref to existing elem
+            }
+        }
+
+        // use piecewise as a separator for two variadic params
+        template<typename ...KT, typename ...VT>
+        int emplace(std::tuple<KT...> key_args, std::tuple<VT...> val_args) {
+            static_assert(std::is_constructible_v<K, KT...> and std::is_constructible_v<V, VT...>);
+            auto [iter, insertion_happens] = m.emplace(std::piecewise_construct,
+                                                       std::move(key_args), std::forward_as_tuple(v.size()));
+            if (insertion_happens) {
+                v.emplace_back(std::piecewise_construct, std::forward_as_tuple(&(iter->first)), std::move(val_args));
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+
+        template<typename KT, typename VT>
+        int insert(KT&& key, VT&& val) noexcept {
+            static_assert(std::is_constructible_v<K, KT> and std::is_constructible_v<V, VT>);
+            auto [iter, insertion_happens] = m.emplace(std::forward<KT>(key), v.size());
+            if (insertion_happens) {
+                v.emplace_back(&(iter->first), std::forward<VT>(val));
+                return 1;
+            } else {
+                return 0;
+            }
+        }
+
+        int erase(const K& key) {
+            auto iter = m.find(key);
+            if (iter == m.end()) { // no-op_ if not found
+                return 0;
+            }
+            size_type index_removed = iter->second;
+            m.erase(iter);
+            if (index_removed != v.size() - 1) { // not the last entry
+                v.at(index_removed) = std::move(v.back());  // redirect v
+                m.at(*(v.at(index_removed).first)) = index_removed;  // redirect m
+            }
+            v.pop_back();  // shrink the last entry out
+            return 1;
+        }
+
+        std::pair<const K&, const V&> random_pair() const {
+            if (v.empty()) { throw std::runtime_error("empty dictionary"); }
+            std::uniform_int_distribution<size_type> uniform_distrib(0, v.size() - 1);
+            auto it = std::next(v.begin(), uniform_distrib(rng));
+            return {std::cref(*(it->first)), std::cref(it->second)};
+        }
+
+        std::pair<const K&, V&> random_pair() {
+            if (v.empty()) { throw std::runtime_error("empty dictionary"); }
+            std::uniform_int_distribution<size_type> uniform_distrib(0, v.size() - 1);
+            auto it = std::next(v.begin(), uniform_distrib(rng));
+            return {std::cref(*(it->first)), std::ref(it->second)};
+        }
     };
-
-    template<typename K, typename V>
-    RandomDict<K, V>::RandomDict(uint32_t seed): _data{}, _m{}, rng{seed} {}
-
-    template<typename K, typename V>
-    size_t RandomDict<K, V>::count(const K &key) const {
-        return _m.count(key);
-    }
-
-    template<typename K, typename V>
-    size_t RandomDict<K, V>::size() const {
-        return _data.size();
-    }
-
-    template<typename K, typename V>
-    void RandomDict<K, V>::clear() noexcept {
-        _data.clear();
-        _m.clear();
-    }
-
-    template<typename K, typename V>
-    const V& RandomDict<K, V>::at(const K &key) const {
-        auto const & itr = _m.find(key);
-        if (itr == _m.end()) {
-            throw std::runtime_error("key not found");
-        }
-        return _data[itr->second].second;
-    }
-
-    template<typename K, typename V>
-    V &RandomDict<K, V>::at(const K &key) {
-        return const_cast<V&>(const_cast<const RandomDict*>(this)->at(key));
-    }
-
-    template<typename K, typename V>
-    V &RandomDict<K, V>::operator[](const K &key) {
-        if (!_m.count(key)) {  // inserting a new key
-            _data.emplace_back(key, V{});
-            _m[key] = _data.size()-1; // map points to the last entry
-            return _data[_data.size()-1].second;
-        } else { // modifying an existing key
-            return _data[_m.at(key)].second;
-        }
-    }
-
-    template<typename K, typename V>
-    size_t RandomDict<K, V>::insert(const K & key, const V & val) {
-        if (_m.count(key)) {
-            return 0;
-        }
-        this->operator[](key) = val;
-        return 1;
-    }
-
-    template<typename K, typename V>
-    size_t RandomDict<K, V>::erase(const K &key) {
-        auto const & iter = _m.find(key);
-        if (iter == _m.end()) { // no-op_ if not found
-            return 0;
-        }
-        size_t index_removed = iter->second;
-        _m.erase(key);
-        if (index_removed != _data.size()-1) { // not the last entry
-            _data[index_removed] = std::move(_data.back());
-            _m[_data[index_removed].first] = index_removed;  // redirect to index_removed
-        }
-        _data.pop_back();  // shrink the last entry out
-        return 1;
-    }
-
-    template<typename K, typename V>
-    const std::pair<K, V> & RandomDict<K, V>::random_pair() const {
-        if (_data.empty()) {
-            throw std::runtime_error("empty dictionary");
-        }
-        std::uniform_int_distribution<size_t> uniform_distrib(0, _data.size()-1);
-        return _data[uniform_distrib(rng)];
-    }
-
-    template<typename K, typename V>
-    std::pair<K, V> &RandomDict<K, V>::random_pair() {
-        return const_cast<std::pair<K,V>&>(const_cast<const RandomDict*>(this)->random_pair());
-    }
 }
 
 #endif //GSK_RANDOMDICT_H
