@@ -10,7 +10,7 @@ namespace data_structures::detail {
     template<typename T>
     struct Entry {
         template<typename ...Arg>
-        explicit Entry(double time, Arg&&... args): time{time}, exist{true}, payload{std::forward<Arg>(args)...} {}
+        explicit Entry(double time, Arg&&... args): time{time}, payload{std::forward<Arg>(args)...}, exist{true} {}
         double time;
         T payload;
         bool exist;
