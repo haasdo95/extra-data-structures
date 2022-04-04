@@ -165,10 +165,12 @@ namespace data_structures {
         void remove(const ID& id) {
             auto it = _m.find(id);
             assert(it!=_m.end());
+            assert(_data.size());
             auto* removed_entry = it->second;
             _m.erase(it);
             auto loc = removed_entry->loc;
             delete removed_entry;
+            if (loc==_data.size()-1) { _data.pop_back(); return; }  // will seg-fault at _data[loc]->loc otherwise
             _data[loc] = _data.back();
             _data.pop_back();
             _data[loc]->loc = loc;
